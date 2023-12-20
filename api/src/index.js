@@ -29,6 +29,7 @@ app.use(bodyParser.json());
 app.use('/uploads',express.static(__dirname + '/uploads'));
  
 //database connection
+mongoose.set('strictQuery', false);
 mongoose.connect(url); 
 
 app.get('/',(req,res) => {
