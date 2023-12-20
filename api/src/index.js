@@ -30,7 +30,7 @@ app.use('/uploads',express.static(__dirname + '/uploads'));
  
 //database connection
 mongoose.set('strictQuery', false);
-mongoose.connect(url); 
+mongoose.connect(url,{ useNewUrlParser: true, useUnifiedTopology: true }); 
 
 app.get('/',(req,res) => {
  res.json('server working');
