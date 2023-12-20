@@ -19,6 +19,20 @@ const bodyParser = require('body-parser');
 var nodemailer = require('nodemailer');
 const dotenv = require('dotenv');
 dotenv.config();
+const sharp = require('sharp');
+const aws = require('aws-sdk');
+
+// AWS S3 bucket connect
+const s3 = new aws.S3({
+    accessKeyId: process.env.S3_ACCESS_KEY,
+    secretAccessKey: process.env.S3_SECRET_KEY,
+    region: 'ap-south-1',
+});
+//upload middleware for amazon s3
+const s3UploadMiddleware = multer ({
+     storage:multer.memoryStorage(),
+     });
+
 const url = 'mongodb+srv://blog:vhUWIEuOKLl1tVOE@cluster0.hrwjeaz.mongodb.net/?retryWrites=true&w=majority';
 
 app.use(cors({credentials:true, origin:'https://blogstera.tech'}));
@@ -91,27 +105,56 @@ app.post('/logout', (req,res) =>{
 
 });
 
-app.post('/post',uploadMiddleware.single('file'),async (req,res) =>{
-    const {originalname,path} = req.file;
-    const parts = originalname.split('.');
-    const ext = parts[parts.length -1];
-    const newPath = path+'.'+ext;
-    fs.renameSync(path, newPath);
-    
-    const {token} = req.cookies;
-    jwt.verify(token, secret, {},async (err,info) => {
+// POST route
+app.post('/post', s3UploadMiddleware.single('file'), async (req, res) => {
+  const { originalname, buffer } = req.file;
+  const parts = originalname.split('.');
+  const ext = parts[parts.length - 1];
+  const desiredQuality = 60;
+  
+  let processedBuffer;
+  // Determine the format of the image
+  const { format } = await sharp(buffer).metadata();
+
+  // Apply different options based on the format
+  if (format === 'jpeg') {
+    processedBuffer = await sharp(buffer).jpeg({ quality: desiredQuality }).toBuffer();
+  } else if (format === 'png') {
+    processedBuffer = await sharp(buffer).png({ compressionLevel: 5 }).toBuffer();
+    // You can adjust the compression level (0 to 9) for PNG images
+  } else {
+    // Handle other formats or use a default behavior
+    processedBuffer = await sharp(buffer).toBuffer();
+  }
+
+  const params = {
+    Bucket: process.env.S3_BUCKET_NAME,
+    Key: `uploads/${Date.now()}.${ext}`,
+    Body: processedBuffer,
+    ContentType: req.file.mimetype,
+    ACL:'public-read'
+  };
+
+  s3.upload(params, async (err, data) => {
+    if (err) {
+        console.error(err); 
+        res.status(500).json({ error: 'Failed to upload to S3', details: err.message });
+      } else {
+      const { token } = req.cookies;
+      jwt.verify(token, secret, {}, async (err, info) => {
         if (err) throw err;
-        const {title,summary,content} = req.body;
+        const { title, summary, content } = req.body;
         const postDoc = await Post.create({
-        title,
-        summary,
-        content,
-        cover: newPath,
-        author: info.id, 
-    });
-    res.json(postDoc);
-    });
-    
+          title,
+          summary,
+          content,
+          cover: data.Location,
+          author: info.id,
+        });
+        res.json(postDoc);
+      });
+    }
+  });
 });
 
 app.get('/post', async (req,res) =>{
@@ -122,35 +165,60 @@ app.get('/post', async (req,res) =>{
     );
 });
 
-app.put('/post',uploadMiddleware.single('file'), async (req,res) => {
-    let newPath = null;
-    if (req.file) {
-      const {originalname,path} = req.file;
-      const parts = originalname.split('.');
-      const ext = parts[parts.length - 1];
-      newPath = path+'.'+ext;
-      fs.renameSync(path, newPath);
+//edit post method
+app.put('/post', s3UploadMiddleware.single('file'), async (req, res) => {
+  let newPath = null;
+  if (req.file) {
+    const { originalname, buffer } = req.file;
+    const parts = originalname.split('.');
+    const ext = parts[parts.length - 1];
+    const desiredQuality = 60;
+
+    let processedBuffer;
+    // Determine the format of the image
+    const { format } = await sharp(buffer).metadata();
+  
+    // Apply different options based on the format
+    if (format === 'jpeg') {
+      processedBuffer = await sharp(buffer).jpeg({ quality: desiredQuality }).toBuffer();
+    } else if (format === 'png') {
+        processedBuffer = await sharp(buffer).jpeg({ quality: desiredQuality }).toBuffer();
+    } else {
+      processedBuffer = await sharp(buffer).toBuffer();
     }
-  
-    const {token} = req.cookies;
-    jwt.verify(token, secret, {}, async (err,info) => {
-      if (err) throw err;
-      const {id,title,summary,content} = req.body;
-      const postDoc = await Post.findById(id);
-      const isAuthor = JSON.stringify(postDoc.author) === JSON.stringify(info.id);
-      if (!isAuthor) {
-        return res.status(400).json('you are not the author');
-      }
-      await postDoc.updateOne({
-        title,
-        summary,
-        content,
-        cover: newPath ? newPath : postDoc.cover,
-      });
-  
-      res.json(postDoc);
+
+    const params = {
+      Bucket: process.env.S3_BUCKET_NAME,
+      Key: `uploads/${Date.now()}.${ext}`,
+      Body: processedBuffer,
+      ContentType: req.file.mimetype,
+      ACL:'public-read'
+    };
+
+    const uploadResult = await s3.upload(params).promise();
+    newPath = uploadResult.Location;
+  }
+
+  const { token } = req.cookies;
+  jwt.verify(token, secret, {}, async (err, info) => {
+    if (err) throw err;
+    const { id, title, summary, content } = req.body;
+    const postDoc = await Post.findById(id);
+    const isAuthor = JSON.stringify(postDoc.author) === JSON.stringify(info.id);
+    if (!isAuthor) {
+      return res.status(400).json('you are not the author');
+    }
+    await postDoc.updateOne({
+      title,
+      summary,
+      content,
+      cover: newPath ? newPath : postDoc.cover,
     });
+
+    res.json(postDoc);
   });
+});
+
 
 
 app.get('/post/:id', async(req, res) => {
