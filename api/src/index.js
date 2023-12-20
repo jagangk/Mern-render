@@ -19,6 +19,7 @@ const bodyParser = require('body-parser');
 var nodemailer = require('nodemailer');
 const dotenv = require('dotenv');
 dotenv.config();
+const url = 'mongodb+srv://blog:vhUWIEuOKLl1tVOE@cluster0.hrwjeaz.mongodb.net/?retryWrites=true&w=majority';
 
 app.use(cors({credentials:true, origin:'https://blogstera.tech'}));
 app.use(express.json());
@@ -28,7 +29,7 @@ app.use(bodyParser.json());
 app.use('/uploads',express.static(__dirname + '/uploads'));
  
 //database connection
-mongoose.connect(process.env.DB_URL); 
+mongoose.connect(url); 
 
 app.get('/',(req,res) => {
  res.json('server working');
