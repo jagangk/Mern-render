@@ -42,6 +42,13 @@ const corsOptions = {
   optionsSuccessStatus: 204, // Some legacy browsers choke on 204
 };
 
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', 'https://blogstera.tech');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  next();
+});
+
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(cookieParser());
